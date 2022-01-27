@@ -1,6 +1,7 @@
 const {Buffer} = require('buffer')
 const fs = require('fs')
 const fetch = require('node-fetch')
+const player = require('play-sound')(opts = {})
 
 const {addressFromMnemonic, incrementBuffer, bip39} = require('./helpers')
 
@@ -18,9 +19,20 @@ const useCooldown = (key) => lastUsed[key] = Date.now()
 const waitCooldown = (key, time) => delay(getCooldown(key, time) + 1)
 const cooldown = (key, time) => waitCooldown(key, time).then(() => useCooldown(key));
 
+const logsPath = './logs/';
+
+const playSound = (fileName) => {
+	player.play(fileName, function(err){
+		if (err) throw err
+	})
+}
+
 
 (async () => {
-	const file = fs.createWriteStream('./logs/' + Date.now() + '.txt', {flags: 'a'});
+	if (!fs.existsSync(logsPath))
+		fs.mkdirSync(logsPath)
+
+	const file = fs.createWriteStream(logsPath + Date.now() + '.txt', {flags: 'a'});
 
 	const oneThread = async (blockSize = 135, maxReqs = 30) => {
 		let req = Promise.resolve();
@@ -56,18 +68,32 @@ const cooldown = (key, time) => waitCooldown(key, time).then(() => useCooldown(k
 				const text = await result.text();
 				try {
 					const json = JSON.parse(text);
-					const bal = json.wallet.final_balance;
-					file.write(`${Date.now()}-(${genEnd-genStart}+${Date.now()-reqStart}-${cd}), 
-					${parseInt(bal) === 0 ? 'EMPTY' : '_______________________MONEY____________________'}, ${bal}, 
-					${base}+${blockSize},\n`);
+					const balance = json.wallet.final_balance;
+
+					console.log(balance, base, '+', blockSize)
+
+					if (parseInt(balance) !== 0) {
+						playSound('./sounds/success.mp3');
+					}
+
+					file.write(`${Date.now()}-(${genEnd-genStart}+${Date.now()-reqStart}-${cd}), ${parseInt(balance) === 0 ? 'EMPTY' : '_______________________MONEY____________________'}, ${balance}, ${base}+${blockSize},\n`);
 				} catch(e) {
-					file.write(`${Date.now()}-(${genEnd-genStart}-${Date.now()-reqStart}-${cd}), PARSING_ERROR, -1,
-					 ${base}+${blockSize}, ${JSON.stringify(text)}, \n`);
+					file.write(`${Date.now()}-(${genEnd-genStart}-${Date.now()-reqStart}-${cd}), PARSING_ERROR, -1, ${base}+${blockSize}, ${JSON.stringify(text)}, \n`);
+
+					onError(e)
 				}
 			}).catch(e => {
 				file.write(`${Date.now()}-(${genEnd-genStart}-${Date.now()-reqStart}-${cd}), REQ_ERROR, -1, ${base}+${blockSize}, ${e.message}\n`);
+
+				onError(e)
 			});
 		}
+	}
+
+	const onError = (error) => {
+		playSound('./sounds/error.mp3');
+
+		console.log('Ошибка', error.message)
 	}
 
 	module.exports = oneThread;
